@@ -11,5 +11,7 @@ make bin/ipxe.usb
 make bin/undionly.kpxe
 
 make bin/undionly.kpxe EMBED=script.ipxe
+ubuntu20.04环境依赖
+sudo apt install -y git wget gcc make binutils perl liblzma-dev mtools genisoimage syslinux
 
 For any more detailed instructions, see http://ipxe.org
