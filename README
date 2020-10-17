@@ -5,4 +5,11 @@ Quick start guide:
    cd src
    make
 
+
+make bin/ipxe.iso
+make bin/ipxe.usb
+make bin/undionly.kpxe
+
+make bin/undionly.kpxe EMBED=script.ipxe
+
 For any more detailed instructions, see http://ipxe.org
