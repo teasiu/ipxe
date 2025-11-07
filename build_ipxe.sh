@@ -211,7 +211,7 @@ compile_and_move() {
     local target=$1
     local output_name=${2:-$target}  # 可选：自定义输出文件名
     echo "编译 $target..."
-    if make "bin/$target" EMBED=script.ipxe NO_TESTS=1; then
+    if make "bin/$target" EMBED=script.ipxe NO_TESTS=1 CFLAGS="-Wno-error=maybe-uninitialized"; then
         mv "bin/$target" "$PRODUCTS_DIR/$output_name"
         echo "✅ $target → $output_name 编译成功"
     else
@@ -266,7 +266,7 @@ compile_efi() {
     local target=$2
     local output_name=$3
     echo "编译 UEFI-$arch $target..."
-    if make "bin-$arch/$target" EMBED=script.ipxe NO_TESTS=1; then
+    if make "bin-$arch/$target" EMBED=script.ipxe NO_TESTS=1 CFLAGS="-Wno-error=maybe-uninitialized"; then
         cp "bin-$arch/$target" "$PRODUCTS_DIR/$output_name"
         echo "✅ UEFI-$arch $target → $output_name 编译成功"
     else
