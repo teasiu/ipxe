@@ -1,0 +1,107 @@
+name: Build iPXE (Legacy + UEFI) and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_title:
+        description: 'Release 标题（可选）'
+        required: false
+        default: 'iPXE 编译产物 (自动构建)'
+      release_notes:
+        description: 'Release 备注（可选）'
+        required: false
+        default: '包含 Legacy BIOS 和 UEFI (x86_64/i386) 全架构镜像，基于 iPXE 最新标签构建'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出仓库代码（包含 build_ipxe.sh 脚本）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 给编译脚本添加执行权限
+        run: chmod +x build_ipxe.sh
+
+      - name: 执行编译脚本
+        run: ./build_ipxe.sh
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: 提取产物目录和 iPXE 版本（移到 Workflow 中）
+        run: |
+          # 产物目录：固定为脚本中的 ipxe/products 路径（与脚本逻辑一致）
+          PRODUCTS_DIR="$(pwd)/ipxe/products"
+          echo "PRODUCTS_DIR=$PRODUCTS_DIR" >> "$GITHUB_ENV"
+          
+          # 提取 iPXE 版本（从 ipxe 仓库的当前检出标签获取）
+          cd ipxe || { echo "无法进入 ipxe 目录"; exit 1; }
+          IPXE_VERSION=$(git describe --tags --abbrev=0)  # 获取当前检出的标签
+          echo "IPXE_VERSION=$IPXE_VERSION" >> "$GITHUB_ENV"
+          cd ..
+
+      - name: 验证产物目录和版本
+        run: |
+          echo "当前 iPXE 版本：${{ env.IPXE_VERSION }}"
+          echo "产物目录：${{ env.PRODUCTS_DIR }}"
+          
+          if [ ! -d "${{ env.PRODUCTS_DIR }}" ]; then
+              echo "错误：产物目录不存在！"
+              exit 1
+          fi
+          
+          if [ -z "${{ env.IPXE_VERSION }}" ]; then
+              echo "错误：无法获取 iPXE 版本！"
+              exit 1
+          fi
+          
+          echo "产物目录包含文件："
+          ls -lh "${{ env.PRODUCTS_DIR }}"
+
+      - name: 准备 Release 信息
+        run: |
+          TIMESTAMP_TAG=$(date +"%Y%m%d-%H%M%S")
+          echo "TIMESTAMP_TAG=$TIMESTAMP_TAG" >> "$GITHUB_ENV"
+          
+          RELEASE_BODY="### 构建信息
+          - iPXE 版本：${{ env.IPXE_VERSION }}
+          - 构建时间：$(date +"%Y-%m-%d %H:%M:%S UTC")
+          - 支持架构：Legacy BIOS + UEFI (x86_64 + i386)
+          - 嵌入脚本：自动 DHCP 链载 tftp://\${next-server}/menu.ipxe
+
+          ### 产物说明
+          | 类型 | 用途 |
+          |------|------|
+          | Legacy BIOS 镜像 | 传统 BIOS 主板引导、PXE 网络引导 |
+          | UEFI x86_64 镜像 | 64位 UEFI 主板引导、UEFI U 盘启动 |
+          | UEFI i386 镜像 | 32位 UEFI 主板引导（旧设备） |
+          | SNP 驱动 | 无 Legacy ROM 的网卡 UEFI 引导 |
+
+          ### 自定义配置
+          - 产品名称：iPXE-ecoo project by teasiu
+          - 支持协议：HTTPS/FTP/NFS/ISCSI/HTTP
+          - 启用命令：digest/reboot/poweroff/ping/console 等"
+          
+          if [ -n "${{ github.event.inputs.release_notes }}" ] && [ "${{ github.event.inputs.release_notes }}" != "包含 Legacy BIOS 和 UEFI (x86_64/i386) 全架构镜像，基于 iPXE 最新标签构建" ]; then
+              RELEASE_BODY="$RELEASE_BODY\n\n### 用户备注\n${{ github.event.inputs.release_notes }}"
+          fi
+          
+          echo "RELEASE_BODY<<EOF" >> "$GITHUB_ENV"
+          echo "$RELEASE_BODY" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+
+      - name: 创建 GitHub Release 并上传产物
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TIMESTAMP_TAG }}
+          name: ${{ github.event.inputs.release_title }} (${{ env.TIMESTAMP_TAG }})
+          body: ${{ env.RELEASE_BODY }}
+          draft: false
+          prerelease: false
+          files: |
+            ${{ env.PRODUCTS_DIR }}/*
+
