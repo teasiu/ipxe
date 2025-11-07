@@ -162,6 +162,18 @@ sed -i.bak 's/\/\/#undef\tCONSOLE_EFI/\/\/#define\tCONSOLE_EFI/' ipxe/src/config
 rm -f ipxe/src/config/*.bak
 
 # ==============================================
+# 新增步骤：删除测试代码目录（彻底禁用测试编译）
+# ==============================================
+echo "删除 iPXE 测试代码目录，避免编译错误..."
+TEST_DIR="$ORIGINAL_DIR/ipxe/src/tests"
+if [ -d "$TEST_DIR" ]; then
+    rm -rf "$TEST_DIR"
+    echo "✅ 已删除测试目录：$TEST_DIR"
+else
+    echo "ℹ️  测试目录不存在，跳过删除"
+fi
+
+# ==============================================
 # 第八步：创建产物目录和嵌入脚本
 # ==============================================
 echo "Runing make..."
