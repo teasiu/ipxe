@@ -18,6 +18,7 @@ sudo apt update && sudo apt install -y \
     liblzma-dev \
     mtools \
     syslinux-utils \
+    genisoimage \
     grub-efi-amd64-bin \
     grub-efi-ia32-bin || {  # 增加 UEFI 编译依赖
     echo "❌ 依赖安装失败！请检查网络或权限后重试"
