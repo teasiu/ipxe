@@ -73,7 +73,7 @@ pxe-service=tag:load,09,  "iPXE UEFI(09)", snponly-x64.efi
 /etc/init.d/dnsmasq restart
 ```
 
-#### 3.自行修改菜单文件内容已启动你需要的系统
+#### 3.自行修改菜单文件内容，使能启动你需要的系统
 
 双模式的启动都是共用菜单文件 menu.ipxe  
 请使用正确的软件编辑这个菜单，建议使用 notepad3 文本编辑  
