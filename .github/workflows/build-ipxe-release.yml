@@ -6,7 +6,7 @@ on:
       release_title:
         description: 'Release 标题（可选）'
         required: false
-        default: 'iPXE 编译产物 (自动构建)'
+        default: 'iPXE'
       release_notes:
         description: 'Release 备注（可选）'
         required: false
@@ -71,20 +71,21 @@ jobs:
           - iPXE 版本：${{ env.IPXE_VERSION }}
           - 构建时间：$(date +"%Y-%m-%d %H:%M:%S UTC")
           - 支持架构：Legacy BIOS + UEFI (x86_64 + i386)
-          - 嵌入脚本：自动 DHCP 链载 tftp://\${next-server}/menu.ipxe
+          - 嵌入脚本：自动 DHCP 链载 tftp://\${next-server}/menu.ipxe , 公用菜单文件 menu.ipxe
 
           ### 产物说明
           | 类型 | 用途 |
           |------|------|
-          | Legacy BIOS 镜像 | 传统 BIOS 主板引导、PXE 网络引导 |
+          | Legacy BIOS 镜像 | 传统 BIOS 主板引导、用于 openwrt 或 PXE 网络引导 |
           | UEFI x86_64 镜像 | 64位 UEFI 主板引导、UEFI U 盘启动 |
           | UEFI i386 镜像 | 32位 UEFI 主板引导（旧设备） |
-          | SNP 驱动 | 无 Legacy ROM 的网卡 UEFI 引导 |
+          | SNP 驱动 | 无 Legacy ROM 的网卡 UEFI 引导 (用于 openwrt 或 PXE 网络引导) |
 
           ### 自定义配置
           - 产品名称：iPXE-ecoo project by teasiu
           - 支持协议：HTTPS/FTP/NFS/ISCSI/HTTP
           - 启用命令：digest/reboot/poweroff/ping/console 等"
+          - 控制台：添加背景图片支持 等"
           
           if [ -n "${{ github.event.inputs.release_notes }}" ] && [ "${{ github.event.inputs.release_notes }}" != "包含 Legacy BIOS 和 UEFI (x86_64/i386) 全架构镜像，基于 iPXE 最新标签构建" ]; then
               RELEASE_BODY="$RELEASE_BODY\n\n### 用户备注\n${{ github.event.inputs.release_notes }}"

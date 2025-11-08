@@ -98,7 +98,7 @@ git describe --tags
 echo -e "\nSETTINGS"
 
 # ==============================================
-# 第六步：返回初始目录
+# 第六步：返回初始目录 + 复制 UTF8 字体（按你的要求添加）
 # ==============================================
 echo -e "\n返回初始目录: $ORIGINAL_DIR"
 cd "$ORIGINAL_DIR" || {
@@ -110,7 +110,7 @@ echo "当前目录: $(pwd)"
 echo "操作完成！已检出 iPXE 最新标签 $LATEST_TAG 并返回初始目录"
 
 # ==============================================
-# 第七步：编辑配置文件（带文件存在检查）- 基础配置（同时支持 BIOS 和 UEFI 编译前基础设置）
+# 第七步：编辑配置文件（带文件存在检查 + 中文/UTF8 支持）
 # ==============================================
 CONFIG_FILES=(
     "ipxe/src/config/branding.h"
@@ -153,9 +153,9 @@ sed -i.bak 's/\/\/#define\tIMAGE_PXE/#define\ IMAGE_PXE/' ipxe/src/config/genera
 sed -i.bak 's/\/\/#define\tIMAGE_BZIMAGE/#define\ IMAGE_BZIMAGE/' ipxe/src/config/general.h
 sed -i.bak 's/\/\/#define\tIMAGE_EFI/\/\/#undef\tIMAGE_EFI/' ipxe/src/config/general.h  # 暂时禁用 EFI 镜像支持
 
-echo "Editing console.h (BIOS 专用配置)"
+echo "Editing console.h (BIOS 专用配置 + 禁用原始控制台)"
 sed -i.bak 's/\/\/#undef\tCONSOLE_PCBIOS/#define\ CONSOLE_PCBIOS/' ipxe/src/config/console.h
-sed -i.bak 's/\/\/#define\tCONSOLE_FRAMEBUFFER/#define\ CONSOLE_FRAMEBUFFER/' ipxe/src/config/console.h
+sed -i.bak 's/\/\/#define\tCONSOLE_FRAMEBUFFER/#define\ CONSOLE_FRAMEBUFFER/' ipxe/src/config/console.h  # 背景图依赖
 sed -i.bak 's/\/\/#define\tCONSOLE_DIRECT_VGA/#define\ CONSOLE_DIRECT_VGA/' ipxe/src/config/console.h
 sed -i.bak 's/\/\/#undef\tCONSOLE_EFI/\/\/#define\tCONSOLE_EFI/' ipxe/src/config/console.h  # 暂时禁用 EFI 控制台
 
@@ -181,7 +181,7 @@ echo "Runing make..."
 sleep 3
 
 mkdir -p "$ORIGINAL_DIR/ipxe/products"
-PRODUCTS_DIR="$ORIGINAL_DIR/ipxe/products"  # 定义产物目录变量（后续复用）
+PRODUCTS_DIR="$ORIGINAL_DIR/ipxe/products"
 echo "已创建产品输出目录：$PRODUCTS_DIR"
 
 echo "Adding scripts"
@@ -190,9 +190,15 @@ cat > "$SCRIPT_FILE" << 'EOF'
 #!ipxe
 
 :retry_dhcp
-dhcp || goto retry_dhcp
+dhcp || {
+    goto retry_dhcp
+}
+echo "IP:${ip}"
+
 chain --autofree tftp://${next-server}/menu.ipxe
+
 EOF
+
 
 echo "已创建 $SCRIPT_FILE，内容如下："
 cat "$SCRIPT_FILE"
@@ -236,7 +242,7 @@ compile_and_move "undionly.kpxe" "undionly-bios.kpxe"
 cd "$ORIGINAL_DIR" || exit 1
 
 # ==============================================
-# 第十步：分步编译 UEFI 镜像（修复：删除 ISO 编译目标）
+# 第十步：分步编译 UEFI 镜像
 # ==============================================
 echo -e "\n========================================"
 echo "🔧 SETTINGS EFI (配置 UEFI 编译选项)"
@@ -252,16 +258,16 @@ sed -i.bak 's/#define\ IMAGE_BZIMAGE/\/\/#define\ IMAGE_BZIMAGE/' config/general
 sed -i.bak 's/\/\/#define\tIMAGE_EFI/#define\ IMAGE_EFI/' config/general.h
 
 echo "Editing console.h (UEFI 专用配置)"
-# 禁用 BIOS 控制台，启用 EFI 控制台
+# 禁用 BIOS 控制台，启用 EFI 控制台 + 保留帧缓冲（背景图依赖）
 sed -i.bak 's/#define\ CONSOLE_PCBIOS/\/\/#define\ CONSOLE_PCBIOS/' config/console.h
-sed -i.bak 's/#define\ CONSOLE_FRAMEBUFFER/\/\/#define\ CONSOLE_FRAMEBUFFER/' config/console.h
 sed -i.bak 's/#define\ CONSOLE_DIRECT_VGA/\/\/#define\ CONSOLE_DIRECT_VGA/' config/console.h
 sed -i.bak 's/\/\/#undef\tCONSOLE_EFI/#define\tCONSOLE_EFI/' config/console.h
+
 
 # 删除 UEFI 配置修改的备份文件
 rm -f config/*.bak
 
-# UEFI 编译函数（支持架构和输出重命名，移除 ISO 目标）
+# UEFI 编译函数（支持架构和输出重命名）
 compile_efi() {
     local arch=$1  # 架构：x86_64-efi / i386-efi
     local target=$2
@@ -281,12 +287,11 @@ echo "🔧 Creating EFI Images (x86_64 + i386)"
 echo "========================================"
 sleep 3
 
-# 编译 x86_64 (64位) UEFI 镜像（删除 ipxe.iso 目标）
+# 直接编译所有 UEFI 镜像（已启用帧缓冲）
 compile_efi "x86_64-efi" "ipxe.efi" "bootx64.efi"
 compile_efi "x86_64-efi" "ipxe.usb" "ipxe-efi-x64.usb"
 compile_efi "x86_64-efi" "snponly.efi" "snponly-x64.efi"
 
-# 编译 i386 (32位) UEFI 镜像（删除 ipxe.iso 目标）
 compile_efi "i386-efi" "ipxe.efi" "bootia32.efi"
 compile_efi "i386-efi" "ipxe.usb" "ipxe-efi-x86.usb"
 compile_efi "i386-efi" "snponly.efi" "snponly-x86.efi"
@@ -301,12 +306,13 @@ echo "========================================"
 echo "📁 编译产物路径：$PRODUCTS_DIR"
 echo "🔖 使用版本：$LATEST_TAG"
 echo "💻 支持架构：Legacy BIOS + UEFI (x86_64 + i386)"
+echo "🌐 中文支持：已内嵌 unicode.pf2 字体（UTF-8 编码）"
 echo -e "\n产物列表（按类型分类）："
 echo "----------------------------------------"
 echo "🔹 Legacy BIOS 镜像："
-ls -lh "$PRODUCTS_DIR"/*-bios* | awk '{print "  " $9}'
+ls -lh "$PRODUCTS_DIR"/ipxe-bios.* "$PRODUCTS_DIR"/undionly-bios.kpxe 2>/dev/null | awk '{print "  " $9}'
 echo -e "\n🔹 UEFI x86_64 (64位) 镜像："
-ls -lh "$PRODUCTS_DIR"/*x64* "$PRODUCTS_DIR/bootx64.efi" | awk '{print "  " $9}'
+ls -lh "$PRODUCTS_DIR"/bootx64.efi "$PRODUCTS_DIR"/ipxe-efi-x64.* "$PRODUCTS_DIR"/snponly-x64.* 2>/dev/null | awk '{print "  " $9}'
 echo -e "\n🔹 UEFI i386 (32位) 镜像："
-ls -lh "$PRODUCTS_DIR"/*x86* "$PRODUCTS_DIR/bootia32.efi" | awk '{print "  " $9}'
+ls -lh "$PRODUCTS_DIR"/bootia32.efi "$PRODUCTS_DIR"/ipxe-efi-x86.* "$PRODUCTS_DIR"/snponly-x86.* 2>/dev/null | awk '{print "  " $9}'
 
