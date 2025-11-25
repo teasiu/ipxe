@@ -27,31 +27,79 @@ echo -e "\n"
 ORIGINAL_DIR=$(pwd)
 echo "初始目录: $ORIGINAL_DIR"
 
+echo "========================================"
+echo "🧹 清理旧的构建环境"
+echo "========================================"
 if [ -d "ipxe" ]; then
-    echo "清理旧的 ipxe 目录..."
+    echo "正在删除旧的 ipxe 目录..."
     rm -rf ipxe
 fi
-
-echo "正在通过 GitHub API 获取最新标签..."
-API_RESPONSE=$(mktemp)
-if ! curl -s -o "$API_RESPONSE" -w "%{http_code}" https://api.github.com/repos/ipxe/ipxe/releases/latest | grep -q "200"; then
-    echo "警告：API 调用失败（HTTP 状态码非 200），尝试 fallback 方式..."
-    git clone https://github.com/ipxe/ipxe.git || { echo "错误：克隆仓库失败！"; exit 1; }
-    cd ipxe
-    git fetch --tags
-    LATEST_TAG=$(git tag -l --sort=-v:refname | head -n 1)
-    cd ..
-else
-    LATEST_TAG=$(grep -oP '"tag_name": "\K(.*?)"' "$API_RESPONSE" | tr -d '"')
+if [ -d "ipxe/products" ]; then
+    echo "正在删除旧的产物目录..."
+    rm -rf ipxe/products
 fi
+echo "✅ 清理完成"
+echo -e "\n"
 
-rm -f "$API_RESPONSE"
+echo "========================================"
+echo "🔍 正在获取 iPXE 最新标签"
+echo "========================================"
+LATEST_TAG=""
+API_URL="https://api.github.com/repos/ipxe/ipxe/tags"
+TMP_RESPONSE=$(mktemp)
+
+echo "尝试通过 GitHub API 获取标签列表..."
+HTTP_CODE=$(curl -s -w "%{http_code}" -o "$TMP_RESPONSE" "$API_URL")
+
+if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "API 调用成功，正在解析最新标签..."
+    
+    if command -v jq &> /dev/null; then
+        LATEST_TAG=$(jq -r '.[0].name' "$TMP_RESPONSE")
+    elif command -v python3 &> /dev/null; then
+        LATEST_TAG=$(python3 -c "import sys, json; print(json.load(sys.stdin)[0]['name'])" < "$TMP_RESPONSE")
+    else
+        echo "警告: jq 或 python3 未安装，使用 grep/cut 解析 (可能不稳定)。"
+        LATEST_TAG=$(grep -m 1 -o '"name": "[^"]*' "$TMP_RESPONSE" | cut -d '"' -f4)
+    fi
+
+    if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "null" ]; then
+        echo "✅ 通过 API 成功获取最新标签: $LATEST_TAG"
+    else
+        echo "警告: API 调用成功，但未找到有效的标签。将尝试 fallback 方式..."
+        LATEST_TAG=""
+    fi
+else
+    echo "警告: API 调用失败 (HTTP 状态码: $HTTP_CODE)。将尝试 fallback 方式..."
+fi
 
 if [ -z "$LATEST_TAG" ]; then
-    echo "错误：无法获取 iPXE 最新标签！"
+    echo "ℹ️  Fallback: 尝试通过克隆仓库获取最新标签..."
+    
+    echo "正在克隆 iPXE 仓库..."
+    git clone --quiet https://github.com/ipxe/ipxe.git || {
+        echo "错误：克隆仓库失败"
+        exit 1
+    }
+    
+    cd ipxe
+    git fetch --tags --quiet
+    LATEST_TAG=$(git tag -l --sort=-v:refname | head -n 1)
+    cd ..
+    echo "✅ 通过 fallback 方式获取最新标签: $LATEST_TAG"
+fi
+
+rm -f "$TMP_RESPONSE"
+
+if [ -z "$LATEST_TAG" ]; then
+    echo "❌ 错误：无法通过任何方式获取 iPXE 最新标签！"
     exit 1
 fi
-echo "获取到最新标签: $LATEST_TAG"
+echo -e "\n"
+
+echo "========================================"
+echo "📥 准备代码和编译环境"
+echo "========================================"
 
 if [ ! -d "ipxe" ]; then
     echo "克隆 iPXE 仓库..."
@@ -67,15 +115,13 @@ cd ipxe || {
     exit 1
 }
 
-git checkout "$LATEST_TAG" -b "latest-tag-$LATEST_TAG" || {
+git checkout "$LATEST_TAG" -b "build-$LATEST_TAG" || {
     echo "错误：切换到标签 $LATEST_TAG 失败"
     exit 1
 }
 
 echo "当前检出版本："
 git describe --tags
-
-echo -e "\nSETTINGS"
 
 echo -e "\n返回初始目录: $ORIGINAL_DIR"
 cd "$ORIGINAL_DIR" || {
@@ -84,7 +130,7 @@ cd "$ORIGINAL_DIR" || {
 }
 
 echo "当前目录: $(pwd)"
-echo "操作完成！已检出 iPXE 最新标签 $LATEST_TAG 并返回初始目录"
+echo -e "\n"
 
 CONFIG_FILES=(
     "ipxe/src/config/branding.h"
@@ -98,6 +144,10 @@ for file in "${CONFIG_FILES[@]}"; do
         exit 1
     fi
 done
+
+echo "========================================"
+echo "⚙️  开始配置源码"
+echo "========================================"
 
 echo "Editing branding.h"
 sed -i.bak 's/#define\ PRODUCT_NAME\ ""/#define\ PRODUCT_NAME\ "iPXE-ecoo\ project\ by\ teasiu"/' ipxe/src/config/branding.h
@@ -134,23 +184,19 @@ sed -i.bak 's/\/\/#undef\tCONSOLE_EFI/\/\/#define\tCONSOLE_EFI/' ipxe/src/config
 
 rm -f ipxe/src/config/*.bak
 
-echo "删除 iPXE 测试代码目录，避免编译错误..."
-TEST_DIR="$ORIGINAL_DIR/ipxe/src/tests"
-if [ -d "$TEST_DIR" ]; then
-    rm -rf "$TEST_DIR"
-    echo "✅ 已删除测试目录：$TEST_DIR"
-else
-    echo "ℹ️  测试目录不存在，跳过删除"
-fi
+#echo "删除 iPXE 测试代码目录，避免编译错误..."
+#TEST_DIR="$ORIGINAL_DIR/ipxe/src/tests"
+#if [ -d "$TEST_DIR" ]; then
+#    rm -rf "$TEST_DIR"
+#    echo "✅ 已删除测试目录：$TEST_DIR"
+#else
+#    echo "ℹ️  测试目录不存在，跳过删除"
+#fi
+echo -e "\n"
 
-echo "Runing make..."
-sleep 3
-
-mkdir -p "$ORIGINAL_DIR/ipxe/products"
-PRODUCTS_DIR="$ORIGINAL_DIR/ipxe/products"
-echo "已创建产品输出目录：$PRODUCTS_DIR"
-
-echo "Adding scripts"
+echo "========================================"
+echo "📝 添加启动脚本"
+echo "========================================"
 SCRIPT_FILE="$ORIGINAL_DIR/ipxe/src/script.ipxe"
 cat > "$SCRIPT_FILE" << 'EOF'
 #!ipxe
@@ -159,28 +205,121 @@ dhcp || goto retry_dhcp
 chain --autofree tftp://${next-server}/menu.ipxe
 EOF
 
-echo "已创建 $SCRIPT_FILE，内容如下："
-cat "$SCRIPT_FILE"
+echo "已创建 $SCRIPT_FILE"
+echo -e "\n"
+
+echo "========================================"
+echo "🔧 检测 GCC 版本以确定编译选项"
+echo "========================================"
+if command -v gcc &> /dev/null; then
+    GCC_VERSION=$(gcc -dumpversion | cut -d '.' -f1)
+    echo "检测到 GCC 主版本号: $GCC_VERSION"
+else
+    echo "❌ 错误：未找到 GCC 编译器！"
+    exit 1
+fi
+
+if [ "$GCC_VERSION" -eq 10 ]; then
+    echo "GCC 版本为 10.x，应用对应编译选项..."
+    
+    compile_and_move() {
+        local target=$1
+        local output_name=${2:-$target}
+        echo "编译 $target..."
+        if make "bin/$target" EMBED=script.ipxe; then
+            mv "bin/$target" "$PRODUCTS_DIR/$output_name"
+            echo "✅ $target → $output_name 编译成功"
+        else
+            echo "❌ $target 编译失败"
+            exit 1
+        fi
+    }
+
+    compile_efi() {
+        local arch=$1
+        local target=$2
+        local output_name=$3
+        echo "编译 UEFI-$arch $target..."
+        if make "bin-$arch/$target" EMBED=script.ipxe; then
+            cp "bin-$arch/$target" "$PRODUCTS_DIR/$output_name"
+            echo "✅ UEFI-$arch $target → $output_name 编译成功"
+        else
+            echo "❌ UEFI-$arch $target 编译失败"
+            exit 1
+        fi
+    }
+
+elif [ "$GCC_VERSION" -gt 10 ]; then
+    echo "GCC 版本大于 10 (${GCC_VERSION})，应用兼容编译选项..."
+    
+    compile_and_move() {
+        local target=$1
+        local output_name=${2:-$target}
+        echo "编译 $target..."
+        if make "bin/$target" EMBED=script.ipxe NO_TESTS=1 EXTRA_CFLAGS="-Wno-error=maybe-uninitialized -Wno-error=array-bounds"; then
+            mv "bin/$target" "$PRODUCTS_DIR/$output_name"
+            echo "✅ $target → $output_name 编译成功"
+        else
+            echo "❌ $target 编译失败"
+            exit 1
+        fi
+    }
+
+    compile_efi() {
+        local arch=$1
+        local target=$2
+        local output_name=$3
+        echo "编译 UEFI-$arch $target..."
+        if make "bin-$arch/$target" EMBED=script.ipxe NO_TESTS=1 EXTRA_CFLAGS="-Wno-error=maybe-uninitialized -Wno-error=array-bounds"; then
+            cp "bin-$arch/$target" "$PRODUCTS_DIR/$output_name"
+            echo "✅ UEFI-$arch $target → $output_name 编译成功"
+        else
+            echo "❌ UEFI-$arch $target 编译失败"
+            exit 1
+        fi
+    }
+
+else
+    echo "GCC 版本小于 10 (${GCC_VERSION})，应用兼容编译选项..."
+    
+    compile_and_move() {
+        local target=$1
+        local output_name=${2:-$target}
+        echo "编译 $target..."
+        if make "bin/$target" EMBED=script.ipxe NO_TESTS=1 EXTRA_CFLAGS="-Wno-error=maybe-uninitialized"; then
+            mv "bin/$target" "$PRODUCTS_DIR/$output_name"
+            echo "✅ $target → $output_name 编译成功"
+        else
+            echo "❌ $target 编译失败"
+            exit 1
+        fi
+    }
+
+    compile_efi() {
+        local arch=$1
+        local target=$2
+        local output_name=$3
+        echo "编译 UEFI-$arch $target..."
+        if make "bin-$arch/$target" EMBED=script.ipxe NO_TESTS=1 EXTRA_CFLAGS="-Wno-error=maybe-uninitialized"; then
+            cp "bin-$arch/$target" "$PRODUCTS_DIR/$output_name"
+            echo "✅ UEFI-$arch $target → $output_name 编译成功"
+        else
+            echo "❌ UEFI-$arch $target 编译失败"
+            exit 1
+        fi
+    }
+fi
 
 echo -e "\n========================================"
-echo "🔧 Creating Legacy BIOS Images"
+echo "🔧 开始编译 Legacy BIOS 镜像"
 echo "========================================"
 sleep 3
 
-cd ipxe/src || { echo "错误：无法进入 ipxe/src 目录"; exit 1; }
+mkdir -p "$ORIGINAL_DIR/ipxe/products"
+PRODUCTS_DIR="$ORIGINAL_DIR/ipxe/products"
+echo "已创建产品输出目录：$PRODUCTS_DIR"
 
-compile_and_move() {
-    local target=$1
-    local output_name=${2:-$target}
-    echo "编译 $target..."
-    if make "bin/$target" EMBED=script.ipxe NO_TESTS=1 EXTRA_CFLAGS="-Wno-error=maybe-uninitialized"; then
-        mv "bin/$target" "$PRODUCTS_DIR/$output_name"
-        echo "✅ $target → $output_name 编译成功"
-    else
-        echo "❌ $target 编译失败"
-        exit 1
-    fi
-}
+cd ipxe/src || { echo "错误：无法进入 ipxe/src 目录"; exit 1; }
 
 compile_and_move "ipxe.iso" "ipxe-bios.iso"
 compile_and_move "ipxe.dsk" "ipxe-bios.dsk"
@@ -193,9 +332,10 @@ compile_and_move "ipxe.kkkpxe" "ipxe-bios.kkkpxe"
 compile_and_move "undionly.kpxe" "undionly-bios.kpxe"
 
 cd "$ORIGINAL_DIR" || exit 1
+echo -e "\n"
 
-echo -e "\n========================================"
-echo "🔧 SETTINGS EFI (配置 UEFI 编译选项)"
+echo "========================================"
+echo "🔧 重新配置以编译 UEFI 镜像"
 echo "========================================"
 
 cd ipxe/src || { echo "错误：无法进入 ipxe/src 目录"; exit 1; }
@@ -212,22 +352,8 @@ sed -i.bak 's/\/\/#undef\tCONSOLE_EFI/#define\tCONSOLE_EFI/' config/console.h
 
 rm -f config/*.bak
 
-compile_efi() {
-    local arch=$1
-    local target=$2
-    local output_name=$3
-    echo "编译 UEFI-$arch $target..."
-    if make "bin-$arch/$target" EMBED=script.ipxe NO_TESTS=1 EXTRA_CFLAGS="-Wno-error=maybe-uninitialized"; then
-        cp "bin-$arch/$target" "$PRODUCTS_DIR/$output_name"
-        echo "✅ UEFI-$arch $target → $output_name 编译成功"
-    else
-        echo "❌ UEFI-$arch $target 编译失败"
-        exit 1
-    fi
-}
-
 echo -e "\n========================================"
-echo "🔧 Creating EFI Images (x86_64 + i386)"
+echo "🔧 开始编译 EFI 镜像 (x86_64 + i386)"
 echo "========================================"
 sleep 3
 
@@ -240,17 +366,21 @@ compile_efi "i386-efi" "ipxe.usb" "ipxe-efi-x86.usb"
 compile_efi "i386-efi" "snponly.efi" "snponly-x86.efi"
 
 cd "$ORIGINAL_DIR" || exit 1
+echo -e "\n"
 
+echo "========================================"
+echo "🧹 清理和整理"
+echo "========================================"
 echo "清理产物目录中的重复文件..."
 find "$PRODUCTS_DIR" -type f -print0 | sort -z | uniq -dz | xargs -0 -I {} rm -f {}
 echo "✅ 重复文件清理完成"
+echo -e "\n"
 
-echo -e "\n🎉 所有操作完成！"
+echo "🎉 所有操作完成！"
 echo "========================================"
 echo "📁 编译产物路径：$PRODUCTS_DIR"
 echo "🔖 使用版本：$LATEST_TAG"
 echo "💻 支持架构：Legacy BIOS + UEFI (x86_64 + i386)"
-echo "🖼️  背景图支持：已启用（所有镜像均生效）"
 echo -e "\n产物列表（按类型分类）："
 echo "----------------------------------------"
 echo "🔹 Legacy BIOS 镜像："
